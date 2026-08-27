@@ -1,0 +1,83 @@
+{
+  "$type": "com.linkedin.voyager.dash.identity.profile.Profile",
+  "entityUrn": "urn:li:fsd_profile:ACoAAAbc1234",
+  "firstName": "Alex",
+  "lastName": "Rivera",
+  "headline": "Senior Software Engineer",
+  "summary": "Software engineer focused on distributed systems.",
+  "publicIdentifier": "alex-rivera",
+  "geoLocationName": "Bengaluru, Karnataka, India",
+  "industryName": "Software Development",
+  "profilePicture": {
+    "displayImage": "urn:li:digitalmediaAsset:C4D03AQExample",
+    "displayImageReference": {
+      "vectorImage": {
+        "rootUrl": "https://media.licdn.com/dms/image/C4D03AQExample",
+        "artifacts": [{ "width": 200, "height": 200, "fileIdentifyingUrlPathSegment": "profile-displayphoto-shrink_200_200/0/0" }]
+      }
+    }
+  },
+  "experience": {
+    "*elements": [
+      {
+        "entityUrn": "urn:li:fsd_position:(urn:li:fsd_company:12345,1)",
+        "title": "Senior Software Engineer",
+        "companyName": "Acme Corp",
+        "company": { "entityUrn": "urn:li:fsd_company:12345", "name": "Acme Corp" },
+        "employmentType": "Full-time",
+        "locationName": "Bengaluru, Karnataka, India",
+        "description": "Leading the search infrastructure team.",
+        "timePeriod": {
+          "startDate": { "year": 2022, "month": 3 },
+          "endDate": null
+        }
+      },
+      {
+        "entityUrn": "urn:li:fsd_position:(urn:li:fsd_company:67890,2)",
+        "title": "Software Engineer",
+        "companyName": "Globex Inc",
+        "timePeriod": {
+          "startDate": { "year": 2019, "month": 6 },
+          "endDate": { "year": 2022, "month": 2 }
+        }
+      }
+    ]
+  },
+  "education": {
+    "*elements": [
+      {
+        "schoolName": "Indian Institute of Technology",
+        "degreeName": "Bachelor of Technology",
+        "fieldOfStudy": "Computer Science",
+        "timePeriod": {
+          "startDate": { "year": 2015, "month": 7 },
+          "endDate": { "year": 2019, "month": 5 }
+        }
+      }
+    ]
+  },
+  "skills": {
+    "*elements": [
+      { "name": "TypeScript", "endorsementCount": 45 },
+      { "name": "Node.js" }
+    ]
+  },
+  "languages": {
+    "*elements": [
+      { "name": "English", "proficiency": "Professional working proficiency" },
+      { "name": "Hindi", "proficiency": "Native or bilingual proficiency" }
+    ]
+  },
+  "certifications": {
+    "*elements": [
+      {
+        "name": "AWS Certified Solutions Architect",
+        "authority": "Amazon Web Services",
+        "timePeriod": { "startDate": { "year": 2021, "month": 4 } },
+        "credentialId": "AWS-123456"
+      }
+    ]
+  },
+  "connectionCount": 512,
+  "followerCount": 1204
+}
