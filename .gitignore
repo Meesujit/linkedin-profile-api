@@ -10,9 +10,7 @@ coverage/
 .env.*
 !.env.example
 
-# LinkedIn session / storage state (NEVER commit)
-storage/*
-!storage/.gitkeep
+# Session / cookie files (defensive — never commit)
 *.session
 cookies.json
 storage-state.json
@@ -23,10 +21,8 @@ linkedin-state.json
 npm-debug.log*
 pnpm-debug.log*
 
-# OS
+# Editor / OS
 .DS_Store
 Thumbs.db
-
-# Playwright
-playwright-report/
-test-results/
+*.swp
+*.swo

@@ -21,24 +21,21 @@ function intFromEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function boolFromEnv(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
-}
-
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   host: string;
   port: number;
   logLevel: string;
 
-  linkedinStatePath: string;
-  headless: boolean;
+  // LinkedIn session credentials (direct HTTP auth — see linkedin/auth.ts).
+  // Supplied exclusively via environment variables; never committed.
+  linkedinLiAt: string;
+  linkedinJsession: string;
 
-  browserLaunchTimeoutMs: number;
-  pageNavigationTimeoutMs: number;
-  extractionTimeoutMs: number;
+  // Direct HTTP client.
+  linkedinHttpTimeoutMs: number;
+  linkedinUserAgent: string;
+
   apiRequestTimeoutMs: number;
 
   maxConcurrentExtractions: number;
@@ -56,12 +53,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: intFromEnv('PORT', 8000),
     logLevel: env.LOG_LEVEL ?? 'info',
 
-    linkedinStatePath: env.LINKEDIN_STATE_PATH ?? 'storage/linkedin-state.json',
-    headless: boolFromEnv('HEADLESS', true),
+    linkedinLiAt: env.LINKEDIN_LI_AT ?? '',
+    linkedinJsession: env.LINKEDIN_JSESSIONID ?? '',
 
-    browserLaunchTimeoutMs: intFromEnv('BROWSER_LAUNCH_TIMEOUT_MS', 60_000),
-    pageNavigationTimeoutMs: intFromEnv('PAGE_NAVIGATION_TIMEOUT_MS', 45_000),
-    extractionTimeoutMs: intFromEnv('EXTRACTION_TIMEOUT_MS', 60_000),
+    linkedinHttpTimeoutMs: intFromEnv('LINKEDIN_HTTP_TIMEOUT_MS', 20_000),
+    linkedinUserAgent:
+      env.LINKEDIN_USER_AGENT ??
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+
     apiRequestTimeoutMs: intFromEnv('API_REQUEST_TIMEOUT_MS', 90_000),
 
     maxConcurrentExtractions: intFromEnv('MAX_CONCURRENT_EXTRACTIONS', 2),

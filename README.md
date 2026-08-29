@@ -11,25 +11,29 @@ Node.js exclusively.
 
 ## Overview
 
-`POST /v1/profile` takes a LinkedIn profile URL, opens the profile inside an
-authenticated Playwright browser session, extracts the profile data LinkedIn
-serves to that session, and returns it as a stable, strongly-validated JSON
-structure.
+`POST /v1/profile` takes a LinkedIn profile URL, makes **direct HTTP requests**
+to LinkedIn's internal endpoints using your own authenticated session cookies,
+and returns the profile data as a stable, strongly-validated JSON structure.
 
-The service is a **scraper over an authenticated session** — not a reverse
-engineered "private API" in the sense of bypassing access controls. It only
-ever reads data that LinkedIn legitimately shows to the authenticated account,
-and it never fabricates missing data.
+> **No browser is used at runtime.** The LinkedIn extraction layer does not use
+> Playwright, Puppeteer, Selenium, Chromium, or any browser automation. It
+> directly communicates with the relevant LinkedIn HTTP endpoints from the
+> Node.js runtime using native `fetch`.
+
+The service is a **reverse-engineered API client over an authenticated session**
+— not a bypass of access controls. It only ever reads data that LinkedIn
+legitimately returns to the authenticated account, and it never fabricates
+missing data.
 
 Key design principles:
 
 - **Accuracy over completeness.** Missing fields are `null`, missing sections
   are `[]`. Nothing is guessed.
-- **Layered extraction.** Structured network/embedded data first, DOM fallback
-  last.
+- **Direct HTTP.** Raw LinkedIn JSON is fetched from LinkedIn's internal REST
+  endpoints and normalized; no DOM scraping, no browser.
 - **Clean separation.** Raw LinkedIn data → parser → normalized public schema.
-- **Security-first.** No credentials in the repo, no secrets in logs/responses,
-  CAPTCHA/MFA is never automated around.
+- **Security-first.** Credentials come from the environment, no secrets in logs
+  or responses, CAPTCHA/MFA is never automated around.
 
 ---
 
@@ -42,17 +46,13 @@ Fastify API  (routes/profile.ts)
    ↓
 Zod request validation  (schemas/profile.schema.ts + utils/url.ts)
    ↓
-ProfileService  (services/profile.service.ts)  — cache, session gate, concurrency
+ProfileService  (services/profile.service.ts)  — cache, session gate
    ↓
-LinkedInClient  (linkedin/client.ts)  — navigation, auth/error detection
+LinkedInClient  (linkedin/client.ts)  — endpoint selection, error mapping
    ↓
-BrowserManager  (linkedin/browser.ts)  — Chromium lifecycle + storage state
+LinkedInHttp  (linkedin/http.ts)  — native fetch + timeout + auth headers
    ↓
-Authenticated LinkedIn session
-   ↓
-LinkedIn profile page
-   ↓
-Layered extractor  (linkedin/extractor.ts)  — RSC payloads → embedded JSON → rendered innerText
+LinkedIn internal endpoints  (voyager/api/...)  ← direct HTTP, no browser
    ↓
 RawLinkedInProfile  (linkedin/types.ts)
    ↓
@@ -64,7 +64,7 @@ NormalizedProfile  (Zod)  →  JSON response
 Responsibilities are deliberately isolated:
 
 - The API layer contains **no** LinkedIn scraping logic.
-- The scraper contains **no** Fastify route logic.
+- The LinkedIn client contains **no** Fastify route logic.
 - The parser does **not** depend on HTTP request objects.
 - Raw LinkedIn data and the normalized API schema are **separate types**, so
   LinkedIn-side changes are absorbed in `extractor.ts` / `parser.ts` without
@@ -102,7 +102,7 @@ warnings, `partial` flag) so consumers can tell exactly what was recovered.
 
 - **Node.js 22 LTS** + **TypeScript 5** (strict mode)
 - **Fastify 5** (HTTP framework)
-- **Playwright** (authenticated Chromium automation)
+- **Native `fetch` (undici)** — direct LinkedIn HTTP requests (no browser)
 - **Zod** (request + response validation)
 - **Vitest** (testing)
 - **pnpm** (package manager)
@@ -125,9 +125,11 @@ linkedin-profile-api/
 │   ├── schemas/
 │   │   └── profile.schema.ts  # public Zod schemas (request + response)
 │   ├── linkedin/
-│   │   ├── browser.ts         # BrowserManager (lifecycle + concurrency)
-│   │   ├── client.ts          # LinkedInClient (navigation + auth detection)
-│   │   ├── extractor.ts       # layered extraction (RSC/embedded/DOM text)
+│   │   ├── auth.ts            # session credential resolution (env vars)
+│   │   ├── http.ts            # direct HTTP client (fetch + timeout + error mapping)
+│   │   ├── endpoints.ts       # LinkedIn internal endpoint definitions
+│   │   ├── client.ts          # LinkedInClient (endpoint selection + auth detection)
+│   │   ├── extractor.ts       # raw LinkedIn JSON → raw model mapping
 │   │   ├── parser.ts          # raw → normalized mapping
 │   │   ├── types.ts           # raw LinkedIn data model
 │   │   └── errors.ts          # typed LinkedIn errors
@@ -139,13 +141,9 @@ linkedin-profile-api/
 │   │   └── cache.ts           # in-memory TTL cache
 │   └── types/
 │       └── index.ts           # shared types (error codes, metadata)
-├── scripts/
-│   ├── linkedin-login.ts      # interactive authentication
-│   └── linkedin-inspect.ts    # dev-only network/embedded data inspector
 ├── tests/                     # Vitest suites (validation, parser, extractor,
-│                              #   schema, health, api — mocked extraction)
+│                              #   auth, http, schema, health, api — mocked HTTP)
 ├── fixtures/linkedin/         # sanitized fictional fixtures (no real data)
-├── storage/                   # session state (git-ignored)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── tsconfig.json / tsconfig.build.json
@@ -164,7 +162,6 @@ git clone <repo-url>
 cd linkedin-profile-api
 pnpm install
 cp .env.example .env      # optional — defaults are sensible
-pnpm exec playwright install chromium
 ```
 
 > Note for WSL users: `pnpm install` must run inside the Linux filesystem (not
@@ -175,22 +172,26 @@ pnpm exec playwright install chromium
 
 ## LinkedIn Authentication
 
-The API authenticates with **your own** LinkedIn account via a persisted
-Playwright storage state (cookies). It never stores your password.
+The API authenticates with **your own** LinkedIn account via session cookies
+(`li_at` + `JSESSIONID`). It never sees or stores your password, and **no
+browser is used anywhere** — the cookies are obtained from your own logged-in
+browser and supplied to the API through environment variables.
+
+1. Log into LinkedIn normally in your browser.
+2. Open DevTools → Application → Cookies → `https://www.linkedin.com`.
+3. Copy the `li_at` and `JSESSIONID` values.
+4. Set them as `LINKEDIN_LI_AT` and `LINKEDIN_JSESSIONID` — in your hosting
+   platform's secret store for deployment, or a git-ignored `.env` for local use.
 
 ```bash
-pnpm linkedin:login
+cp .env.example .env
+# fill LINKEDIN_LI_AT and LINKEDIN_JSESSIONID in .env
+pnpm dev
 ```
 
-This opens a Chromium window on the LinkedIn login page. Log in manually and
-complete any CAPTCHA / MFA / verification yourself. The script detects a
-successful login and saves the session to `storage/linkedin-state.json`.
-
-- The session file is **git-ignored** and must never be committed.
-- Sessions expire. When requests return `LINKEDIN_AUTH_REQUIRED`, re-run the
-  login script.
-- On WSL you need a display (WSLg on Windows 11, or an X server) for the
-  headed browser.
+- `.env` is git-ignored; env vars are injected as secrets and never committed.
+- Sessions expire. When requests return `LINKEDIN_AUTH_REQUIRED`, refresh the
+  cookie values.
 
 ---
 
@@ -337,7 +338,7 @@ Error response:
 Error codes: `INVALID_URL`, `LINKEDIN_AUTH_REQUIRED`, `PROFILE_NOT_FOUND`,
 `PROFILE_NOT_ACCESSIBLE`, `EXTRACTION_FAILED`, `RATE_LIMITED`, `TIMEOUT`,
 `INTERNAL_ERROR`. Responses never include stack traces, cookies, headers, or
-internal browser state.
+internal state.
 
 ### Example request
 
@@ -352,76 +353,83 @@ curl -X POST https://YOUR-DOMAIN/v1/profile \
 ## Reverse Engineering Approach
 
 The challenge asks to "reverse engineer LinkedIn APIs". We interpret this
-literally and ethically: **observe what LinkedIn's own web application does
-during an authorized session and reproduce the data-retrieval behavior** — not
-to bypass authentication, defeat access controls, or exfiltrate anything the
-session is not already entitled to see.
+literally and ethically: **reproduce the HTTP requests LinkedIn's own web
+application makes during an authorized session** — not to bypass authentication,
+defeat access controls, or exfiltrate anything the session is not entitled to.
 
-What we actually observed (August 2026, authenticated session):
+How the LinkedIn web communication was investigated:
 
-1. LinkedIn's profile page is rendered by a **Server-Driven UI (SDUI) layer over
-   React Server Components** ("flagship-web"). Profile data no longer comes from
-   the old Voyager API or from JSON embedded in `<code>`/`<script>` blocks.
-2. The profile is fetched via `POST
-   https://www.linkedin.com/flagship-web/rsc-action/actions/server-request` and
-   `/actions/component` (component id
-   `com.linkedin.sdui.generated.profile.dsl.impl.*`), returning
-   `application/octet-stream` React-Flight payloads (not JSON).
-3. The rendered DOM has **hashed, unstable class names**, no `<h1>` for the name
-   (it is an `<h2>`), no semantic `#experience`/`#skills` ids, and no `og:` or
-   JSON-LD meta tags — so CSS-selector scraping is unreliable by design.
-4. The name is reliably available in `<title>` ("Name | LinkedIn"), images in
-   `<img>`/`<link rel="preload">` tags, and the remaining visible data in the
-   rendered `innerText`.
+1. During development, LinkedIn's own web-application traffic was inspected in
+   an authenticated browser session (dev-only investigation). Two data sources
+   were identified:
+   - The current frontend fetches the profile through a **Server-Driven UI /
+     React Server Components** pipeline (`flagship-web/rsc-action`) returning
+     `application/octet-stream` React-Flight payloads — not practical to consume
+     with plain HTTP.
+   - LinkedIn's long-lived **internal REST API** (`/voyager/api/...`) answers
+     plain `GET` requests with JSON when the session cookies are presented.
+2. The Voyager API is the viable direct-HTTP source: it requires only the
+   `li_at` and `JSESSIONID` session cookies (plus a `csrf-token` header derived
+   from `JSESSIONID`) and returns the full profile entity as JSON.
 
-Accordingly the extractor does **not** hard-code undocumented endpoints and does
-**not** copy proprietary PhantomBuster code. It reads only data LinkedIn renders
-to the authenticated session:
+What each request provides:
 
-- `<title>` → name; `<img>`/`<link rel="preload">` → profile + background images;
-- section-anchored parsing of `document.body.innerText` → headline, pronouns,
-  location, about, skills, languages, follower/connection counts.
+| Endpoint | Method | Purpose | Auth |
+| --- | --- | --- | --- |
+| `/voyager/api/identity/profiles/{id}/profileView` | GET | Full profile: identity, headline, location, summary/about, experience, education, skills, certifications, languages, images | `li_at` + `JSESSIONID` + `csrf-token` |
+| `/voyager/api/identity/profiles/{id}/profileContactInfo` | GET | Public contact info (websites, social profiles) | same |
 
-PhantomBuster's public documentation is used only as architectural inspiration
-(an authenticated cookie/session drives the scraper).
+Profile identifiers: a `/in/<public-identifier>/` URL is parsed and normalized
+(see `utils/url.ts`); the `<public-identifier>` becomes the path segment used in
+the endpoint.
+
+Raw responses are mapped into an internal `RawLinkedInProfile` model
+(`extractor.ts`), then normalized into the public schema (`parser.ts`). The
+Voyager responses already embed the full section lists (with `{ "*elements":
+[...] }` paging wrappers), so **no pagination is required** for the fields this
+API exposes.
+
+Authentication: the `li_at` (long-lived auth token) and `JSESSIONID` (session
+CSRF token) cookies are read from the environment and attached to every
+request; the `csrf-token` header is the `JSESSIONID` value with its quotes
+stripped.
+
+No undocumented endpoints are assumed or invented. No proprietary PhantomBuster
+code is used; its public documentation is used only as architectural inspiration
+(an authenticated cookie/session drives the client).
 
 ---
 
 ## Data Extraction Strategy
 
-Layered, in priority order (the extractor reports which layers contributed via
-`extraction_method`):
+Single-source, deterministic:
 
-1. **Rendered DOM text** — the primary source today. Name from `<title>`, images
-   from `<img>`/`<link rel="preload">`, and headline/location/about/skills/
-   languages/counts parsed from the rendered `innerText` via section-header
-   anchoring (immune to hashed class names). The page is auto-scrolled (through
-   LinkedIn's nested `<main>` scroller) to trigger lazy-loaded Experience,
-   Education, Projects, and Skills sections before extraction.
-2. **Network payloads** — JSON responses observed during navigation. Inactive on
-   the current SDUI frontend (which returns `octet-stream` RSC payloads) but
-   retained for when LinkedIn serves JSON again.
-3. **Embedded JSON** — structured data inlined in the page HTML. Also currently
-   absent; kept as a fallback.
+1. **Direct HTTP** — `GET /voyager/api/identity/profiles/{id}/profileView`
+   returns the profile entity as JSON; `extractor.ts` maps it into
+   `RawLinkedInProfile`.
+2. **Contact info** — a separate best-effort `GET .../profileContactInfo`
+   enriches `contact_info`; its absence is non-fatal.
 
-The parser then enforces the "never fabricate" rule: anything not reliably
-recoverable from the rendered page is returned as `null`/`[]` rather than
-guessed.
+The parser then enforces the "never fabricate" rule: any field or section the
+payload does not contain is returned as `null`/`[]`. The `extraction_method` in
+the response metadata is `network`.
 
 ---
 
 ## Security
 
 - Authentication uses **only your own** (or an explicitly authorized) account.
-- Session state lives outside the repository (`storage/`, git-ignored); the
+- Credentials (`LINKEDIN_LI_AT` + `LINKEDIN_JSESSIONID`) come from the
+  environment / deployment secret store and are **never committed**; the
   password is never seen or stored.
-- Configuration comes from environment variables; `.env` is git-ignored.
+- Session values are **never logged** and **never returned** by the API.
+- `.env` is git-ignored; `.env.example` contains placeholders only.
 - CAPTCHA, MFA, checkpoints, and identity verification are **never automated
   around** — they require manual interaction.
 - Rate limits are respected; the API rate-limiter protects the public endpoint
   and never exists to defeat LinkedIn's own limits.
-- Logs are redacted (cookies, authorization headers, tokens, sessions).
-- Error responses never leak secrets, stack traces, or browser state.
+- Logs are redacted (cookies, authorization headers, tokens).
+- Error responses never leak secrets, stack traces, or internal state.
 - Access is limited to what the authenticated session can legitimately see.
 
 ---
@@ -439,10 +447,11 @@ Coverage: URL validation (valid/invalid cases), Zod request + response schema
 validation, parser mapping (identity, experience, education, skills,
 certifications, languages, images, dates, durations, current-vs-past roles,
 missing/null/empty data), extractor mapping from a fictional LinkedIn-shaped
-payload, `/health`, and `POST /v1/profile` (invalid URL, valid URL, and
-auth-required) with **mocked** extraction. Tests require no live LinkedIn
-access. Fixtures are fictional and sanitized — no real person's data, no
-credentials.
+payload, session resolution (`auth.ts`), the HTTP client's error mapping
+(redirects, 999, 401/403/404/429, timeout), and `POST /v1/profile` (invalid
+URL, valid URL, and auth-required) with **mocked** HTTP. Tests require no live
+LinkedIn access. Fixtures are fictional and sanitized — no real person's data,
+no credentials.
 
 ---
 
@@ -452,23 +461,24 @@ credentials.
 docker compose up --build
 ```
 
-The image installs Playwright's Chromium and its OS dependencies, builds the
-project, and runs `node dist/server.js` on `0.0.0.0:8000`. No secrets are baked
-into the image. The LinkedIn session state is mounted from `./storage` (generate
-it on the host first with `pnpm linkedin:login`).
+The image builds the project and runs `node dist/server.js` on `0.0.0.0:8000`.
+**No browser or Chromium is installed** — the LinkedIn client is direct HTTP.
+No secrets are baked into the image; session credentials are injected via
+`LINKEDIN_LI_AT` / `LINKEDIN_JSESSIONID` at runtime.
 
 ---
 
 ## Deployment
 
-Any container platform that supports Chromium works (Render, Railway, Fly.io,
-etc.). Configure secrets via the platform's secret store — never in the repo,
-Dockerfile, or logs.
+Any Node.js container platform works (Render, Railway, Fly.io, etc.) — no
+Chromium or browser support is required. Configure the session credentials as
+secrets via the platform's secret store — never in the repo, Dockerfile, or
+logs.
 
 ```text
 NODE_ENV=production
-LINKEDIN_STATE_PATH=storage/linkedin-state.json
-HEADLESS=true
+LINKEDIN_LI_AT=<your li_at cookie>
+LINKEDIN_JSESSIONID=<your JSESSIONID cookie>
 ```
 
 After deploying, validate externally:
@@ -487,41 +497,36 @@ curl -X POST https://YOUR-DOMAIN/v1/profile \
 
 ## Known Limitations
 
-- LinkedIn migrated to an SDUI/React-Server-Components frontend (2026). Its DOM
-  uses hashed, unstable class names and its data payloads are
-  `application/octet-stream` RSC wire format — not the JSON of the older Voyager
-  era. The extractor therefore relies on `innerText`/`<title>`/`<img>` and can
-  change when LinkedIn's markup changes.
-- Structured **experience/education/projects/skills** are recovered by
-  auto-scrolling the profile, but only the items LinkedIn renders *without*
-  clicking "Show all" are captured. Long sections (e.g. "Skills (47)" shows 2 of
-  47) are therefore partial. Descriptions inside experience entries are also not
-  parsed (they sit in the RSC payloads).
-- `is_current` is inferred from an absent end date (LinkedIn's convention) and
-  can be wrong for profiles with incomplete date data.
+- LinkedIn's internal API and its auth/anti-bot behavior change over time. The
+  Voyager endpoints and the `li_at` + `JSESSIONID` scheme are what was observed
+  during development; LinkedIn may alter or restrict them.
+- The Voyager `profileView` response shape varies by profile and by LinkedIn
+  release; field mapping is defensive and may need updating.
+- **Anti-bot**: LinkedIn (via Cloudflare and its own `fabric` layer) may reject
+  requests it deems non-browser (HTTP 999, `li_at=delete me`, or 302 redirects).
+  A fresh, valid session and conservative request rate minimize this, but it
+  cannot be guaranteed. When it happens the API surfaces `RATE_LIMITED` or
+  `LINKEDIN_AUTH_REQUIRED` rather than retrying aggressively.
 - Profile visibility differs by relationship; some sections may be absent or
   partial for the authenticated account.
 - Some profiles may require additional verification to view.
-- Sessions expire and must be renewed via `pnpm linkedin:login`.
+- Sessions expire and must be renewed.
 - Image URLs are CDN-signed and can change or expire.
-- LinkedIn rate limits / checkpoints may occur; the service backs off rather
-  than retrying aggressively.
-- Some fields (e.g. contact details behind LinkedIn's "Contact info" overlay,
-  endorsement totals) may be unavailable without additional interaction.
+- Some fields (e.g. contact details not exposed to the session) may be
+  unavailable.
+- `is_current` is inferred from an absent end date (LinkedIn's convention) and
+  can be wrong for profiles with incomplete date data.
 - The API cannot guarantee 100% completeness for every profile.
 
 ---
 
 ## Future Improvements
 
-- Parse the SDUI/RSC `application/octet-stream` payloads (React-Flight format) to
-  recover structured experience/education/certifications and full geo data — the
-  single biggest completeness win.
+- Persist a validated session and add health checks that surface
+  `LINKEDIN_AUTH_REQUIRED` before requests fail.
+- Expand to additional Voyager endpoints (e.g. per-section endpoints) if the
+  full `profileView` response ever omits a section.
 - Persistent cache (Redis) for horizontal scaling.
-- Per-profile session pool / rotation for higher throughput.
-- Scheduled session-health checks with automatic `LINKEDIN_AUTH_REQUIRED`
-  alerting.
-- Expand contact-info extraction (the contact modal / contact endpoint).
 - Snapshot-based extractor regression tests against recorded (sanitized)
   payloads.
 - Deeper `geo` location parsing into structured city/state/country.

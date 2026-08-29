@@ -58,7 +58,9 @@ export class ProfileService {
     if (cached) return cached;
 
     if (!this.session.hasSessionState()) {
-      throw new AuthRequiredError('No LinkedIn session found. Run `pnpm linkedin:login` first.');
+      throw new AuthRequiredError(
+        'LinkedIn session credentials are not configured. Set LINKEDIN_LI_AT and LINKEDIN_JSESSIONID.',
+      );
     }
 
     const { raw, method, warnings } = await this.extractor.extractProfile(canonicalUrl, vanityName);
@@ -73,7 +75,7 @@ export class ProfileService {
         source: 'linkedin',
         extraction_method: method,
         authenticated: true,
-        partial: method === 'dom',
+        partial: warnings.length > 0,
         sections_available: parsed.sectionsAvailable,
         warnings: allWarnings,
       },
