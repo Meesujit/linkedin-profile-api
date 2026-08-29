@@ -1,23 +1,24 @@
 /**
- * LinkedInClient — high-level client over the direct-HTTP LinkedIn API.
+ * LinkedInClient — high-level client over LinkedIn's SDUI/RSC endpoints.
  *
  * Owns the end-to-end "profile URL → raw data" flow using plain HTTP requests
  * (no browser):
  *
- *   resolve session → GET Voyager endpoints → rawFromJson → raw profile
+ *   1. GET /in/{vanity}/  → server-rendered top card (name, headline, location).
+ *   2. POST RSC component actions → React-Flight payloads for about,
+ *      experience, education, skills, languages.
  *
- * It translates LinkedIn's HTTP failures (redirects, 999, 401/403/404/429) into
- * typed LinkedInError instances. It does NOT know about Fastify or the public
- * API schema.
+ * It translates LinkedIn's HTTP failures into typed LinkedInError instances and
+ * never knows about Fastify or the public API schema.
  */
 import type { AppConfig } from '../config.js';
 import type { ExtractionMethod } from '../types/index.js';
-import { LinkedInError, ProfileNotAccessibleError } from './errors.js';
+import { ProfileNotAccessibleError } from './errors.js';
 import type { RawLinkedInProfile } from './types.js';
-import { rawFromJson } from './extractor.js';
+import { extractFromHtml, mergeRscSections } from './extractor.js';
 import { resolveSession } from './auth.js';
 import { LinkedInHttp } from './http.js';
-import { ENDPOINTS } from './endpoints.js';
+import { profilePagePath, componentActionPath, PROFILE_COMPONENTS } from './endpoints.js';
 
 export interface ClientExtraction {
   raw: RawLinkedInProfile;
@@ -25,32 +26,16 @@ export interface ClientExtraction {
   warnings: string[];
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function str(v: unknown): string | null {
-  return typeof v === 'string' && v.trim() ? v.trim() : null;
-}
-
-/** Best-effort merge of the profileContactInfo payload into the raw profile. */
-function mergeContactInfo(raw: RawLinkedInProfile, blob: unknown): void {
-  if (!isRecord(blob)) return;
-  const websites = Array.isArray(blob['websites']) ? blob['websites'] : [];
-  for (const w of websites) {
-    if (!isRecord(w)) continue;
-    const url = str(w['url']);
-    if (!url) continue;
-    const label = isRecord(w['label']) ? str(w['label']['text']) : null;
-    raw.contactInfo.websites.push({ url, label });
-  }
-  const twitter = Array.isArray(blob['twitterHandles']) && isRecord(blob['twitterHandles'][0])
-    ? str(blob['twitterHandles'][0]['name'])
-    : null;
-  if (twitter) raw.contactInfo.twitter = twitter;
-  // GitHub has no dedicated field; it arrives as a website URL.
-  const gh = raw.contactInfo.websites.find((w) => /github\.com/i.test(w.url));
-  if (gh) raw.contactInfo.github = gh.url;
+function componentBody(vanityName: string): unknown {
+  return {
+    clientArguments: {
+      payload: { isSelfView: false, vanityName },
+      states: [],
+      requestMetadata: { $type: 'proto.sdui.common.RequestMetadata' },
+      screenId: 'com.linkedin.sdui.flagshipnav.home.Home',
+      knownTemplateIds: [],
+    },
+  };
 }
 
 export class LinkedInClient {
@@ -69,25 +54,37 @@ export class LinkedInClient {
     const session = resolveSession(this.config);
     const http = new LinkedInHttp(this.config, session);
     const warnings: string[] = [];
+    const referer = `https://www.linkedin.com/in/${vanityName}/`;
 
-    const profileBlob = await http.getJson<unknown>(ENDPOINTS.profileView.path(vanityName));
-    const raw = rawFromJson(profileBlob, vanityName);
-    // A profile is "accessible" if we resolved any identity signal — Voyager
-    // returns firstName/lastName (not always a combined fullName).
-    if (!raw || (!raw.identity.firstName && !raw.identity.lastName && !raw.identity.fullName)) {
-      throw new ProfileNotAccessibleError(vanityName);
+    // 1. Top card from the server-rendered HTML.
+    const html = await http.getText(profilePagePath(vanityName));
+    const raw = extractFromHtml(html, vanityName);
+
+    // 2. Lazily-loaded sections from the RSC component actions. Each is
+    // best-effort: a missing/rate-limited section is skipped, never fatal.
+    const components = [
+      PROFILE_COMPONENTS.aboveActivity,
+      PROFILE_COMPONENTS.experience,
+      ...PROFILE_COMPONENTS.belowActivity,
+    ];
+    for (const componentId of components) {
+      try {
+        const rscText = await http.postRsc(componentActionPath(componentId), componentBody(vanityName), referer);
+        mergeRscSections(rscText, raw);
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'RATE_LIMITED') {
+          warnings.push('Some profile sections were unavailable (rate limited).');
+          break;
+        }
+        // PROFILE_NOT_FOUND / EXTRACTION_FAILED for a section: skip and continue.
+      }
     }
 
-    // Contact info is a separate endpoint and entirely optional.
-    try {
-      const contactBlob = await http.getJson<unknown>(ENDPOINTS.profileContactInfo.path(vanityName));
-      mergeContactInfo(raw, contactBlob);
-    } catch (err) {
-      if (err instanceof LinkedInError && err.code === 'PROFILE_NOT_FOUND') {
-        // no contact section — leave empty, not an error
-      } else {
-        warnings.push('Contact info unavailable.');
-      }
+    // 3. Require at least one identity signal; otherwise the profile is not
+    // accessible to this session.
+    if (!raw.identity.fullName && !raw.identity.firstName && !raw.identity.lastName) {
+      throw new ProfileNotAccessibleError(vanityName);
     }
 
     return { raw, method: 'network', warnings };

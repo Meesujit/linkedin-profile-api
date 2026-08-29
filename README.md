@@ -362,46 +362,46 @@ How the LinkedIn web communication was investigated:
 1. During development, LinkedIn's own web-application traffic was inspected in
    an authenticated browser session (dev-only investigation). Two data sources
    were identified:
-   - The current frontend fetches the profile through a **Server-Driven UI /
-     React Server Components** pipeline (`flagship-web/rsc-action`) returning
-     `application/octet-stream` React-Flight payloads.
-   - LinkedIn's legacy **internal REST API** (`/voyager/api/...`) — the JSON API
+   - LinkedIn's legacy **Voyager REST API** (`/voyager/api/...`) — the JSON API
      used by earlier generations of scrapers.
-2. The client targets the Voyager API: `li_at` + `JSESSIONID` session cookies
-   (plus a `csrf-token` header derived from `JSESSIONID`) are attached to each
-   `GET` request for the profile entity as JSON.
-3. **Live result (August 2026):** the Voyager endpoints return **HTTP 410 Gone**
-   — LinkedIn has retired the Voyager JSON API. The request authenticates
-   correctly (no redirect / auth-wall), but the endpoint no longer exists.
+   - The current **Server-Driven UI / React Server Components** ("flagship-web")
+     pipeline.
+2. **Live result (August 2026):** the Voyager endpoints return **HTTP 410 Gone**
+   — LinkedIn has retired the Voyager JSON API.
+3. The current frontend is therefore the target. Its requests were reproduced
+   with plain HTTP (no browser):
+   - `GET /in/{public-identifier}/` returns the server-rendered HTML, whose
+     `<title>` and rendered top card carry the name, headline, pronouns, and
+     location.
+   - `POST /flagship-web/rsc-action/actions/component?componentId=…&sduiid=…`
+     with a small JSON body returns `application/octet-stream` React-Flight
+     payloads for the lazily-loaded sections (about, experience, education,
+     skills, languages).
 
-Endpoints targeted (and observed outcome):
+Endpoints used:
 
-| Endpoint | Method | Purpose | Observed |
-| --- | --- | --- | --- |
-| `/voyager/api/identity/profiles/{id}/profileView` | GET | Full profile: identity, headline, location, summary/about, experience, education, skills, certifications, languages, images | **HTTP 410 Gone** (retired) |
-| `/voyager/api/identity/profiles/{id}/profileContactInfo` | GET | Public contact info (websites, social profiles) | retired (same namespace) |
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/in/{public-identifier}/` | GET | Server-rendered top card: name, headline, pronouns, location, images, follower/connection counts |
+| `/flagship-web/rsc-action/actions/component?componentId=…` | POST | React-Flight payload per profile section |
 
-Profile identifiers: a `/in/<public-identifier>/` URL is parsed and normalized
-(see `utils/url.ts`); the `<public-identifier>` becomes the path segment used in
-the endpoint.
+The RSC request body is plain JSON:
 
-The parser pipeline (raw → `RawLinkedInProfile` → normalized schema) is fully
-implemented and tested against a Voyager-shaped fixture; it is the part that
-remains useful regardless of which endpoint ultimately supplies the raw JSON.
-When a Voyager payload is provided (e.g. a recorded fixture), normalization
-works end-to-end. The Voyager payloads embed the full section lists (with
-`{ "*elements": [...] }` paging wrappers), so no pagination is required.
+```json
+{"clientArguments":{"payload":{"isSelfView":false,"vanityName":"…"},"states":[],"requestMetadata":{"$type":"proto.sdui.common.RequestMetadata"},"screenId":"…","knownTemplateIds":[]}}
+```
+
+The component responses are `application/octet-stream` React-Flight text
+(Brotli-compressed). Their leaf text is carried in `"children":["…"]`,
+`"children":[null,"…"]`, and `"children":[["$",…],"…"]` records, grouped under
+section headers ("Experience", "Education", "Skills", …). `extractor.ts` walks
+those records into `RawLinkedInProfile`, which `parser.ts` normalizes into the
+public schema.
 
 Authentication: the `li_at` (long-lived auth token) and `JSESSIONID` (session
 CSRF token) cookies are read from the environment and attached to every
 request; the `csrf-token` header is the `JSESSIONID` value with its quotes
-stripped. Live testing confirmed the authentication is accepted — the observed
-410 is an endpoint-not-found, not an auth rejection.
-
-The remaining direct-HTTP surface is the SDUI/RSC pipeline
-(`flagship-web/rsc-action`), which returns `application/octet-stream`
-React-Flight wire format rather than JSON — documented under Future
-Improvements as the next reverse-engineering target.
+stripped. No browser is involved in the request path.
 
 No undocumented endpoints are assumed or invented. No proprietary PhantomBuster
 code is used; its public documentation is used only as architectural inspiration
@@ -411,13 +411,14 @@ code is used; its public documentation is used only as architectural inspiration
 
 ## Data Extraction Strategy
 
-Single-source, deterministic:
+Deterministic, two-step, all over plain HTTP:
 
-1. **Direct HTTP** — `GET /voyager/api/identity/profiles/{id}/profileView`
-   returns the profile entity as JSON; `extractor.ts` maps it into
-   `RawLinkedInProfile`.
-2. **Contact info** — a separate best-effort `GET .../profileContactInfo`
-   enriches `contact_info`; its absence is non-fatal.
+1. **Profile HTML** — `GET /in/{public-identifier}/` yields the server-rendered
+   top card; `extractFromHtml` reads name, headline, pronouns, location, images,
+   and follower/connection counts.
+2. **RSC components** — a `POST` to `…/actions/component` per profile section
+   returns the React-Flight payload; `mergeRscSections` extracts about,
+   experience, education, skills, and languages.
 
 The parser then enforces the "never fabricate" rule: any field or section the
 payload does not contain is returned as `null`/`[]`. The `extraction_method` in
@@ -507,12 +508,12 @@ curl -X POST https://YOUR-DOMAIN/v1/profile \
 ## Known Limitations
 
 - **Voyager is retired.** Live testing (August 2026) returned HTTP 410 Gone for
-  `/voyager/api/identity/profiles/{id}/profileView` — LinkedIn has removed the
-  Voyager JSON API. The client's authentication is accepted (the request is not
-  rejected as auth/anti-bot), but the endpoint no longer exists; the current
-  profile data source is the SDUI/RSC layer (`flagship-web/rsc-action`).
-- The `profileView` response shape (Voyager era) varies by profile and by
-  LinkedIn release; field mapping is defensive and may need updating.
+  `/voyager/api/identity/profiles/{id}/profileView`; the client therefore uses
+  the SDUI/RSC ("flagship-web") endpoints instead.
+- **SDUI markup is not stable.** LinkedIn's React-Flight payloads and section
+  component ids can change; the extractor's heuristics (section headers, text
+  anchoring) may need updating. About / skills / languages are recovered
+  best-effort and may be partial on some profiles.
 - **Anti-bot**: LinkedIn (via Cloudflare and its own `fabric` layer) may reject
   requests it deems non-browser (HTTP 999, `li_at=delete me`, or 302 redirects).
   A fresh, valid session and conservative request rate minimize this, but it
@@ -533,10 +534,8 @@ curl -X POST https://YOUR-DOMAIN/v1/profile \
 
 ## Future Improvements
 
-- Reverse-engineer the SDUI/RSC pipeline (`flagship-web/rsc-action`) — the
-  current profile data source — and parse its `application/octet-stream`
-  React-Flight payloads. This is the main path back to live extraction now that
-  Voyager is retired.
+- Improve section parsing as LinkedIn's React-Flight payloads evolve (multi-line
+  About bodies, skills/languages with endorsement counts, structured dates).
 - Persist a validated session and add health checks that surface
   `LINKEDIN_AUTH_REQUIRED` before requests fail.
 - Persistent cache (Redis) for horizontal scaling.
