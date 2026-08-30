@@ -26,6 +26,7 @@ export function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     cacheTtlSeconds: 0,
     rateLimitMax: 30,
     rateLimitTimeWindow: '1 minute',
+    apiKey: '',
     ...overrides,
   };
 }

@@ -19,6 +19,7 @@ import { extractFromHtml, mergeRscSections } from './extractor.js';
 import { resolveSession } from './auth.js';
 import { LinkedInHttp } from './http.js';
 import { profilePagePath, componentActionPath, PROFILE_COMPONENTS } from './endpoints.js';
+import { Semaphore } from '../utils/concurrency.js';
 
 export interface ClientExtraction {
   raw: RawLinkedInProfile;
@@ -39,7 +40,11 @@ function componentBody(vanityName: string): unknown {
 }
 
 export class LinkedInClient {
-  constructor(private readonly config: AppConfig) {}
+  private readonly semaphore: Semaphore;
+
+  constructor(private readonly config: AppConfig) {
+    this.semaphore = new Semaphore(config.maxConcurrentExtractions);
+  }
 
   hasSessionState(): boolean {
     try {
@@ -50,7 +55,11 @@ export class LinkedInClient {
     }
   }
 
-  async extractProfile(_canonicalUrl: string, vanityName: string): Promise<ClientExtraction> {
+  async extractProfile(canonicalUrl: string, vanityName: string): Promise<ClientExtraction> {
+    return this.semaphore.run(() => this.doExtract(canonicalUrl, vanityName));
+  }
+
+  private async doExtract(_canonicalUrl: string, vanityName: string): Promise<ClientExtraction> {
     const session = resolveSession(this.config);
     const http = new LinkedInHttp(this.config, session);
     const warnings: string[] = [];

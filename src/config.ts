@@ -44,6 +44,9 @@ export interface AppConfig {
 
   rateLimitMax: number;
   rateLimitTimeWindow: string;
+
+  // Optional API key. When set, /v1/* routes require the `X-API-Key` header.
+  apiKey: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -69,6 +72,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
     rateLimitMax: intFromEnv('RATE_LIMIT_MAX', 30),
     rateLimitTimeWindow: env.RATE_LIMIT_TIME_WINDOW ?? '1 minute',
+
+    apiKey: env.API_KEY ?? '',
   };
 }
 

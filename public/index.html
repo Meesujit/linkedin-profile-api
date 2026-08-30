@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LinkedIn Profile API</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --border: #e3e6ea;
+    --text: #1a1f2b;
+    --muted: #6b7280;
+    --accent: #0a66c2;
+    --accent-hover: #084f92;
+    --green: #057642;
+    --red: #c0392b;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { margin-bottom: 24px; }
+  header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  input[type="text"], textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+  }
+  textarea { min-height: 110px; resize: vertical; }
+  input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 18px;
+    color: #fff;
+    background: var(--accent);
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button.secondary:hover { background: rgba(10,102,194,0.06); }
+
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row.gap { gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .spinner {
+    display: inline-block; width: 15px; height: 15px; margin-right: 8px; vertical-align: -2px;
+    border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .status { margin-top: 14px; font-size: 14px; min-height: 20px; }
+  .status.error { color: var(--red); }
+  .status.ok { color: var(--green); }
+
+  .profile { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+  .profile .top { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; }
+  .profile img.avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: #eef0f3; }
+  .profile .name { font-size: 18px; font-weight: 700; margin: 0; }
+  .profile .headline { color: var(--muted); font-size: 14px; margin: 2px 0 0; }
+  .profile .loc { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+
+  .section { margin-top: 12px; }
+  .section h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+  .item { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .item:last-child { border-bottom: none; }
+  .item .t { font-weight: 600; font-size: 14px; }
+  .item .s { color: var(--muted); font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #eef3f9; color: var(--accent); border-radius: 20px; padding: 3px 11px; font-size: 12px; font-weight: 600; }
+
+  details.json { margin-top: 14px; }
+  details.json summary { cursor: pointer; font-size: 13px; color: var(--accent); font-weight: 600; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px;
+    overflow: auto; font-size: 12px; max-height: 420px;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
+  td.ok { color: var(--green); font-weight: 600; }
+  td.fail { color: var(--red); }
+
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 9px; }
+  .pill.ok { background: #e6f4ec; color: var(--green); }
+  .pill.fail { background: #fdecea; color: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LinkedIn Profile API</h1>
+    <p>Paste a LinkedIn profile URL to extract structured data — name, headline, location, experience, education, skills, and more.</p>
+  </header>
+
+  <div class="card">
+    <h2>API Key (optional)</h2>
+    <label for="api-key">X-API-Key</label>
+    <input type="text" id="api-key" placeholder="Only needed if the server has API_KEY set" autocomplete="off" />
+    <p class="hint">Stored in your browser only, sent as the <code>X-API-Key</code> header.</p>
+  </div>
+
+  <div class="card">
+    <h2>Single Profile</h2>
+    <div class="row">
+      <input type="text" id="url-input" placeholder="https://www.linkedin.com/in/example/" />
+      <button id="extract-btn">Extract</button>
+    </div>
+    <div class="status" id="single-status"></div>
+    <div class="profile" id="single-result" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>Batch Extract</h2>
+    <label for="batch-input">One LinkedIn URL per line (max 50)</label>
+    <textarea id="batch-input" placeholder="https://www.linkedin.com/in/alice/&#10;https://www.linkedin.com/in/bob/"></textarea>
+    <div class="row gap">
+      <button id="batch-btn">Extract all</button>
+      <button id="csv-btn" class="secondary" disabled>Download CSV</button>
+    </div>
+    <div class="status" id="batch-status"></div>
+    <div id="batch-result"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var apiKeyInput = document.getElementById('api-key');
+  var urlInput = document.getElementById('url-input');
+  var extractBtn = document.getElementById('extract-btn');
+  var singleStatus = document.getElementById('single-status');
+  var singleResult = document.getElementById('single-result');
+
+  var batchInput = document.getElementById('batch-input');
+  var batchBtn = document.getElementById('batch-btn');
+  var csvBtn = document.getElementById('csv-btn');
+  var batchStatus = document.getElementById('batch-status');
+  var batchResult = document.getElementById('batch-result');
+
+  var apiKey = localStorage.getItem('linkedin-api-key') || '';
+  apiKeyInput.value = apiKey;
+  apiKeyInput.addEventListener('input', function () {
+    localStorage.setItem('linkedin-api-key', apiKeyInput.value.trim());
+  });
+
+  function headers() {
+    var h = { 'Content-Type': 'application/json' };
+    var k = apiKeyInput.value.trim();
+    if (k) h['X-API-Key'] = k;
+    return h;
+  }
+
+  function setStatus(el, msg, cls) {
+    el.textContent = msg || '';
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+
+  function setLoading(btn, loading, label) {
+    btn.disabled = loading;
+    btn.innerHTML = loading ? '<span class="spinner"></span>' + label : label;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function renderProfile(profile) {
+    var id = profile.identity || {};
+    var loc = profile.location || {};
+    var img = profile.profile_images || {};
+    var html = '<div class="top">';
+    if (img.profile && img.profile.url) {
+      html += '<img class="avatar" src="' + esc(img.profile.url) + '" alt="avatar" />';
+    }
+    html += '<div><p class="name">' + esc(id.full_name || 'Unknown') + '</p>';
+    html += '<p class="headline">' + esc(id.headline) + '</p>';
+    html += '<p class="loc">' + esc(loc.raw) + '</p></div></div>';
+
+    if (profile.about) {
+      html += '<div class="section"><h3>About</h3><div>' + esc(profile.about) + '</div></div>';
+    }
+
+    html += renderExperience(profile.experience);
+    html += renderEducation(profile.education);
+
+    if (profile.skills && profile.skills.length) {
+      html += '<div class="section"><h3>Skills</h3><div class="chips">' +
+        profile.skills.map(function (s) { return '<span class="chip">' + esc(s.name) + '</span>'; }).join('') +
+        '</div></div>';
+    }
+    if (profile.languages && profile.languages.length) {
+      html += '<div class="section"><h3>Languages</h3><div class="chips">' +
+        profile.languages.map(function (l) { return '<span class="chip">' + esc(l.name) + '</span>'; }).join('') +
+        '</div></div>';
+    }
+
+    html += '<details class="json"><summary>View raw JSON</summary><pre>' +
+      esc(JSON.stringify(profile, null, 2)) + '</pre></details>';
+    return html;
+  }
+
+  function renderExperience(items) {
+    if (!items || !items.length) return '';
+    var html = '<div class="section"><h3>Experience</h3>';
+    items.forEach(function (e) {
+      html += '<div class="item"><div class="t">' + esc(e.title) + '</div>';
+      html += '<div class="s">' + esc(e.company) + (e.employment_type ? ' · ' + esc(e.employment_type) : '') + '</div>';
+      if (e.location) html += '<div class="s">' + esc(e.location) + '</div>';
+      html += '</div>';
+    });
+    return html + '</div>';
+  }
+
+  function renderEducation(items) {
+    if (!items || !items.length) return '';
+    var html = '<div class="section"><h3>Education</h3>';
+    items.forEach(function (e) {
+      html += '<div class="item"><div class="t">' + esc(e.school) + '</div>';
+      html += '<div class="s">' + esc(e.degree) + (e.field_of_study ? ' · ' + esc(e.field_of_study) : '') + '</div>';
+      html += '</div>';
+    });
+    return html + '</div>';
+  }
+
+  async function post(url, body) {
+    var res = await fetch(url, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+    if (res.status === 401) {
+      throw new Error('Unauthorized — check your API key.');
+    }
+    var data = await res.json().catch(function () { return null; });
+    if (!res.ok || !data) {
+      throw new Error(data && data.error ? data.error.message : 'Request failed (HTTP ' + res.status + ').');
+    }
+    return data;
+  }
+
+  extractBtn.addEventListener('click', async function () {
+    var url = urlInput.value.trim();
+    if (!url) { setStatus(singleStatus, 'Enter a LinkedIn profile URL.', 'error'); return; }
+    singleResult.hidden = true;
+    setStatus(singleStatus, '', '');
+    setLoading(extractBtn, true, 'Extracting…');
+    try {
+      var data = await post('/v1/profile', { url: url });
+      singleResult.innerHTML = renderProfile(data.profile);
+      singleResult.hidden = false;
+      setStatus(singleStatus, 'Extracted successfully.', 'ok');
+    } catch (err) {
+      setStatus(singleStatus, err.message, 'error');
+    } finally {
+      setLoading(extractBtn, false, 'Extract');
+    }
+  });
+
+  urlInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') extractBtn.click(); });
+
+  batchBtn.addEventListener('click', async function () {
+    var urls = batchInput.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!urls.length) { setStatus(batchStatus, 'Enter at least one URL.', 'error'); return; }
+    if (urls.length > 50) { setStatus(batchStatus, 'Max 50 URLs per batch.', 'error'); return; }
+    batchResult.innerHTML = '';
+    csvBtn.disabled = true;
+    setStatus(batchStatus, '', '');
+    setLoading(batchBtn, true, 'Extracting ' + urls.length + '…');
+    try {
+      var data = await post('/v1/profile/batch', { urls: urls });
+      renderBatch(data.results);
+      var okCount = data.results.filter(function (r) { return r.success; }).length;
+      setStatus(batchStatus, okCount + '/' + urls.length + ' profiles extracted.', okCount === urls.length ? 'ok' : '');
+      if (okCount > 0) csvBtn.disabled = false;
+    } catch (err) {
+      setStatus(batchStatus, err.message, 'error');
+    } finally {
+      setLoading(batchBtn, false, 'Extract all');
+    }
+  });
+
+  function renderBatch(results) {
+    var html = '<table><thead><tr><th>URL</th><th>Name</th><th>Headline</th><th>Status</th></tr></thead><tbody>';
+    results.forEach(function (r) {
+      if (r.success) {
+        var id = r.profile.identity || {};
+        html += '<tr><td>' + esc(r.url) + '</td><td>' + esc(id.full_name) + '</td><td>' + esc(id.headline) + '</td><td class="ok">✓</td></tr>';
+      } else {
+        html += '<tr><td>' + esc(r.url) + '</td><td colspan="2">' + esc(r.error.message) + '</td><td><span class="pill fail">' + esc(r.error.code) + '</span></td></tr>';
+      }
+    });
+    html += '</tbody></table>';
+    batchResult.innerHTML = html;
+  }
+
+  csvBtn.addEventListener('click', async function () {
+    var urls = batchInput.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!urls.length) return;
+    var res = await fetch('/v1/profile/batch?format=csv', {
+      method: 'POST', headers: headers(), body: JSON.stringify({ urls: urls })
+    });
+    if (!res.ok) { setStatus(batchStatus, 'CSV export failed.', 'error'); return; }
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'linkedin-profiles.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+})();
+</script>
+</body>
+</html>
