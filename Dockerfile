@@ -29,6 +29,7 @@ ENV NODE_ENV=production \
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+COPY public ./public
 
 # Session credentials are injected via env vars (LINKEDIN_LI_AT /
 # LINKEDIN_JSESSIONID) at runtime — never baked into the image.
