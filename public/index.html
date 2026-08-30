@@ -131,8 +131,9 @@
   <div class="card">
     <h2>API Key (optional)</h2>
     <label for="api-key">X-API-Key</label>
-    <input type="text" id="api-key" placeholder="Only needed if the server has API_KEY set" autocomplete="off" />
-    <p class="hint">Stored in your browser only, sent as the <code>X-API-Key</code> header.</p>
+    <input type="text" id="api-key" placeholder="Leave empty if the server has no API_KEY set" autocomplete="off" />
+    <p class="hint">Only needed if the server has <code>API_KEY</code> set. Stored in your browser only; sent as the <code>X-API-Key</code> header.</p>
+    <p class="hint">Got <code>401 Unauthorized</code>? The server requires a key — enter the correct one above. Running your own copy? Just don't set <code>API_KEY</code> in <code>.env</code> and leave this field empty.</p>
   </div>
 
   <div class="card">

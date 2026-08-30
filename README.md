@@ -380,16 +380,31 @@ counts).
 ### API-key authentication
 
 When `API_KEY` is set, every `/v1/*` request must include the header
-`X-API-Key: <your key>`. `/health` and `/docs` remain public. Leave `API_KEY`
-empty to keep the API open (local dev / demo).
+`X-API-Key: <your key>`. `/health` and `/docs` remain public.
+
+> **Running locally / cloning the repo?** Auth is **off by default**. If you
+> don't set `API_KEY` in your `.env` (or leave it empty), the API runs **open**
+> — no key required. Quickest way to try it: set the two LinkedIn cookies and
+> skip `API_KEY` entirely.
+
+> **Getting `401 Unauthorized`?** The server you're hitting *does* have
+> `API_KEY` set and your request is missing the matching `X-API-Key` header.
+> Either send the right key, or remove `API_KEY` from that server's environment
+> (locally: delete the line from `.env`).
+
+The public demo at `https://linkedin.dolphinlab.site` is protected (demo key on
+request). Clone the repo and omit `API_KEY` to run an unprotected copy.
 
 ### Example request
 
 ```bash
 curl -X POST https://YOUR-DOMAIN/v1/profile \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
   -d '{ "url": "https://www.linkedin.com/in/example/" }'
 ```
+
+> Omit the `X-API-Key` header if the server has no `API_KEY` set.
 
 ---
 
