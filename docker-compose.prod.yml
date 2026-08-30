@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    container_name: linkedin-profile-api
+    # Bind to loopback only — intended to sit behind a reverse proxy or
+    # Cloudflare Tunnel (the sole ingress).
+    ports:
+      - "127.0.0.1:8081:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

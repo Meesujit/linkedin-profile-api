@@ -96,6 +96,15 @@ The API extracts, when available:
 Every response also carries extraction metadata (method, sections present,
 warnings, `partial` flag) so consumers can tell exactly what was recovered.
 
+Beyond the core endpoint, the service ships with:
+
+- **Web frontend** — a single-page UI served at `/` (paste one URL or a batch,
+  view structured results, download CSV).
+- **Batch extraction** — `POST /v1/profile/batch` (up to 50 URLs) with per-item
+  results, plus CSV export via `?format=csv`.
+- **API-key protection** — when `API_KEY` is set, `/v1/*` requires an
+  `X-API-Key` header (`/health` and `/docs` stay open).
+
 ---
 
 ## Tech Stack
@@ -217,7 +226,9 @@ curl http://localhost:8000/health
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/health` | Liveness check (no session details) |
+| GET | `/` | Web frontend (single + batch extract, CSV download) |
 | POST | `/v1/profile` | Extract a profile |
+| POST | `/v1/profile/batch` | Extract up to 50 profiles (JSON or CSV) |
 | GET | `/docs` | Interactive Swagger UI |
 | GET | `/docs/json` | OpenAPI JSON |
 | GET | `/docs/yaml` | OpenAPI YAML |
@@ -339,6 +350,38 @@ Error codes: `INVALID_URL`, `LINKEDIN_AUTH_REQUIRED`, `PROFILE_NOT_FOUND`,
 `PROFILE_NOT_ACCESSIBLE`, `EXTRACTION_FAILED`, `RATE_LIMITED`, `TIMEOUT`,
 `INTERNAL_ERROR`. Responses never include stack traces, cookies, headers, or
 internal state.
+
+### `POST /v1/profile/batch`
+
+Request (up to 50 URLs):
+
+```json
+{ "urls": ["https://www.linkedin.com/in/alex-rivera/", "https://www.linkedin.com/in/sam-jones/"] }
+```
+
+Response — each item succeeds or fails independently (one bad URL never aborts
+the batch):
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "results": [
+    { "url": "https://www.linkedin.com/in/alex-rivera/", "success": true, "profile": { }, "metadata": { } },
+    { "url": "https://www.linkedin.com/in/sam-jones/", "success": false, "error": { "code": "PROFILE_NOT_FOUND", "message": "..." } }
+  ]
+}
+```
+
+Append `?format=csv` to download a flat CSV of the successful profiles (name,
+headline, location, current role, skills, languages, follower/connection
+counts).
+
+### API-key authentication
+
+When `API_KEY` is set, every `/v1/*` request must include the header
+`X-API-Key: <your key>`. `/health` and `/docs` remain public. Leave `API_KEY`
+empty to keep the API open (local dev / demo).
 
 ### Example request
 
@@ -489,6 +532,30 @@ logs.
 NODE_ENV=production
 LINKEDIN_LI_AT=<your li_at cookie>
 LINKEDIN_JSESSIONID=<your JSESSIONID cookie>
+API_KEY=<optional key to protect /v1/*>
+```
+
+### Home lab (Docker + Cloudflare Tunnel)
+
+A working example: deploy behind a Cloudflare Tunnel on a self-hosted Docker
+host (the container binds to loopback only, so the tunnel is the sole ingress).
+
+```bash
+# On the host
+git clone https://github.com/<you>/linkedin-profile-api.git && cd linkedin-profile-api
+# create .env with LINKEDIN_LI_AT / LINKEDIN_JSESSIONID / API_KEY, then:
+docker compose -f docker-compose.prod.yml up -d --build   # binds 127.0.0.1:8081
+```
+
+Add a tunnel route (`<service>.your-domain` → `http://127.0.0.1:8081`) and a
+DNS CNAME:
+
+```bash
+cloudflared tunnel route dns <tunnel-name> linkedin.your-domain
+# add to /etc/cloudflared/config.yml ingress:
+#   - hostname: linkedin.your-domain
+#     service: http://127.0.0.1:8081
+sudo systemctl restart cloudflared
 ```
 
 After deploying, validate externally:
