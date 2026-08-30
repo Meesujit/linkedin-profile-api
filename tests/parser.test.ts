@@ -42,6 +42,43 @@ describe('parseLinkedInProfile (full fixture)', () => {
     expect(profile.profile_images.gallery).toEqual([]);
   });
 
+  it('decodes HTML entities in image URLs', () => {
+    const withEntities = structuredClone(raw);
+    withEntities.profilePicture = {
+      url: 'https://media.licdn.com/dms/image/C4D03AQE/abc?e=1789603200&amp;v=beta&amp;t=xyz',
+      width: 200,
+      height: 200,
+      alt: 'Alex Rivera',
+    };
+    withEntities.backgroundPicture = {
+      url: 'https://media.licdn.com/dms/image/C4D16AQE/bg?e=1789603200&amp;v=beta&amp;t=abc',
+      width: null,
+      height: null,
+      alt: null,
+    };
+    withEntities.gallery = [
+      {
+        url: 'https://media.licdn.com/dms/image/C4D16AQE/g?e=1789603200&amp;v=beta&amp;t=z',
+        width: null,
+        height: null,
+        alt: null,
+      },
+    ];
+
+    const parsed = parseLinkedInProfile(withEntities);
+
+    expect(parsed.profile.profile_images.profile.url).toBe(
+      'https://media.licdn.com/dms/image/C4D03AQE/abc?e=1789603200&v=beta&t=xyz',
+    );
+    expect(parsed.profile.profile_images.profile.url).not.toContain('&amp;');
+    expect(parsed.profile.profile_images.background.url).toBe(
+      'https://media.licdn.com/dms/image/C4D16AQE/bg?e=1789603200&v=beta&t=abc',
+    );
+    expect(parsed.profile.profile_images.gallery[0]!.url).toBe(
+      'https://media.licdn.com/dms/image/C4D16AQE/g?e=1789603200&v=beta&t=z',
+    );
+  });
+
   it('maps multiple experience positions with current flag + duration', () => {
     expect(profile.experience).toHaveLength(2);
     const [current, past] = profile.experience as [unknown, unknown];

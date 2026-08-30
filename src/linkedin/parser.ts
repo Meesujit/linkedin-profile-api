@@ -99,9 +99,21 @@ function computeDuration(timePeriod: RawTimePeriod | null | undefined): string |
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
+// Decode HTML entities that LinkedIn may embed in URLs (e.g. `&amp;` inside CDN
+// image query strings) so the API returns valid, directly-usable URLs.
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
 function normalizeImage(image: RawImage | null | undefined): NormalizedImage {
   return {
-    url: cleanString(image?.url),
+    url: cleanString(decodeHtmlEntities(image?.url ?? '')),
     width: toInt(image?.width),
     height: toInt(image?.height),
     alt: cleanString(image?.alt),
